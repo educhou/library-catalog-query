@@ -26,20 +26,42 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Rate limiting: max 60 requisições por minuto por IP
+# Segurança e limites
+API_TIMEOUT = 5
+MAX_SUBJECTS = 5
+MAX_QUERY_LENGTH = 200
+ALLOWED_SEARCH_TYPES = {"isbn", "title", "author"}
+
+# Rate limiting: max 60 requisições por minuto por IP+endpoint
 _rate_store: dict = defaultdict(list)
 RATE_LIMIT = 60
 RATE_WINDOW = 60  # segundos
+TRUST_PROXY = os.environ.get("TRUST_PROXY", "false").lower() == "true"
 
 
-def is_rate_limited(ip: str) -> bool:
-    """Return True if the IP has exceeded the rate limit."""
+def _client_ip() -> str:
+    """Resolve IP do cliente com proxy trust opcional."""
+    if TRUST_PROXY:
+        forwarded_for = request.headers.get("X-Forwarded-For", "")
+        if forwarded_for:
+            return forwarded_for.split(",")[0].strip() or "unknown"
+    return request.remote_addr or "unknown"
+
+
+def _validate_query_length(value: str) -> bool:
+    """Return True when query length is acceptable."""
+    return len(value) <= MAX_QUERY_LENGTH
+
+
+def is_rate_limited(ip: str, scope: str = "global") -> bool:
+    """Return True if the IP has exceeded the rate limit for a scope."""
+    key = f"{ip}:{scope}"
     now = time.time()
     window_start = now - RATE_WINDOW
-    _rate_store[ip] = [t for t in _rate_store[ip] if t > window_start]
-    if len(_rate_store[ip]) >= RATE_LIMIT:
+    _rate_store[key] = [t for t in _rate_store[key] if t > window_start]
+    if len(_rate_store[key]) >= RATE_LIMIT:
         return True
-    _rate_store[ip].append(now)
+    _rate_store[key].append(now)
     # Evict IPs with no recent requests to prevent unbounded memory growth
     stale = [k for k, v in _rate_store.items() if not v]
     for k in stale:
@@ -93,23 +115,27 @@ def lookup_by_isbn(isbn: str) -> Optional[Dict[str, Any]]:
     except ValueError as e:
         return {"error": str(e)}
     
-    url = f"https://openlibrary.org/isbn/{isbn_valid}.json"
+    url = f"https://openlibrary.org/isbn/{urllib.parse.quote_plus(isbn_valid)}.json"
     try:
-        with urllib.request.urlopen(url, timeout=5) as response:
+        with urllib.request.urlopen(url, timeout=API_TIMEOUT) as response:
             data = json.loads(response.read().decode('utf-8'))
             return extract_catalog_fields(data, isbn_valid)
     except urllib.error.HTTPError as e:
         if e.code == 404:
             return {"error": f"ISBN não encontrado: {isbn_valid}"}
         else:
+            logger.error("Erro HTTP Open Library para ISBN %s: %s", isbn_valid, e.code)
             return {"error": f"Erro na API: {e.code}"}
     except Exception as e:
-        return {"error": f"Erro ao consultar: {str(e)}"}
+        logger.error("Falha ao consultar ISBN %s: %s", isbn_valid, e)
+        return {"error": "Erro ao consultar serviço externo"}
 
 
 def search_by_title_or_author(query: str, search_type: str = "title") -> List[Dict[str, Any]]:
     """Search Open Library by title or author."""
     if not query or len(query.strip()) < 2:
+        return []
+    if not _validate_query_length(query):
         return []
     
     if search_type == "author":
@@ -118,7 +144,7 @@ def search_by_title_or_author(query: str, search_type: str = "title") -> List[Di
         url = f"https://openlibrary.org/search.json?title={urllib.parse.quote_plus(query)}&limit=10"
     
     try:
-        with urllib.request.urlopen(url, timeout=5) as response:
+        with urllib.request.urlopen(url, timeout=API_TIMEOUT) as response:
             data = json.loads(response.read().decode('utf-8'))
             
             if search_type == "author":
@@ -165,12 +191,12 @@ def extract_catalog_fields(data: Dict[str, Any], isbn: str) -> Dict[str, Any]:
     """Extract 8 required catalog fields from Open Library response."""
     return {
         "isbn": isbn,
-        "title": data.get("title", "Não disponível"),
+        "title": _extract_text(data.get("title"), "Não disponível"),
         "author": extract_authors(data.get("authors", [])),
         "publisher": extract_publisher(data.get("publishers", [])),
-        "publish_date": data.get("publish_date", "Não disponível"),
+        "publish_date": _extract_text(data.get("publish_date"), "Não disponível"),
         "subject": extract_subjects(data.get("subjects", [])),
-        "abstract": data.get("description", "Não disponível"),
+        "abstract": _extract_text(data.get("description"), "Não disponível"),
         "location": "Não disponível",
         "type": "book",
         "pages": data.get("number_of_pages", "Desconhecido")
@@ -219,7 +245,44 @@ def extract_subjects(subjects: list) -> str:
         elif isinstance(subject, str):
             names.append(subject)
     
-    return "; ".join(names[:5]) if names else "Não disponível"
+    return "; ".join(names[:MAX_SUBJECTS]) if names else "Não disponível"
+
+
+@app.after_request
+def add_security_headers(response):
+    """Apply baseline security headers for zero-trust defaults."""
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    response.headers[
+        "Content-Security-Policy"
+    ] = (
+        "default-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'; "
+        "form-action 'self'"
+    )
+    if request.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    if request.is_secure:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+
+@app.errorhandler(405)
+def method_not_allowed(_error):
+    return jsonify({"error": "Método HTTP não permitido"}), 405
+
+
+@app.errorhandler(500)
+def internal_server_error(error):
+    logger.error("Erro interno não tratado: %s", error, exc_info=True)
+    return jsonify({"error": "Erro interno do servidor"}), 500
 
 
 @app.route('/')
@@ -231,17 +294,22 @@ def index():
 @app.route('/api/search', methods=['GET'])
 def search():
     """API endpoint for searching."""
-    if is_rate_limited(request.remote_addr):
-        logger.warning("Rate limit atingido: %s", request.remote_addr)
+    client_ip = _client_ip()
+    if is_rate_limited(client_ip, scope="api_search"):
+        logger.warning("Rate limit atingido: %s", client_ip)
         return jsonify({"error": "Muitas requisições. Tente novamente em instantes."}), 429
 
     query = request.args.get('q', '').strip()
-    search_type = request.args.get('type', 'isbn')  # isbn, title, author
+    search_type = request.args.get('type', 'isbn').strip().lower()
 
-    logger.info("Busca: type=%s q=%s ip=%s", search_type, query, request.remote_addr)
+    logger.info("Busca: type=%s q=%s ip=%s", search_type, query, client_ip)
 
     if not query:
         return jsonify({"error": "Consulta vazia"}), 400
+    if not _validate_query_length(query):
+        return jsonify({"error": f"Consulta excede o limite de {MAX_QUERY_LENGTH} caracteres"}), 400
+    if search_type not in ALLOWED_SEARCH_TYPES:
+        return jsonify({"error": "Tipo de busca inválido"}), 400
     
     if search_type == 'isbn':
         result = lookup_by_isbn(query)
@@ -264,13 +332,14 @@ def search():
 @app.route('/api/lookup-isbn', methods=['GET'])
 def lookup_isbn_api():
     """Direct ISBN lookup endpoint."""
-    if is_rate_limited(request.remote_addr):
-        logger.warning("Rate limit atingido: %s", request.remote_addr)
+    client_ip = _client_ip()
+    if is_rate_limited(client_ip, scope="api_lookup_isbn"):
+        logger.warning("Rate limit atingido: %s", client_ip)
         return jsonify({"error": "Muitas requisições. Tente novamente em instantes."}), 429
 
     isbn = request.args.get('isbn', '').strip()
 
-    logger.info("ISBN lookup: isbn=%s ip=%s", isbn, request.remote_addr)
+    logger.info("ISBN lookup: isbn=%s ip=%s", isbn, client_ip)
 
     if not isbn:
         return jsonify({"error": "ISBN não fornecido"}), 400
