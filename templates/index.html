@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Consulta de Catálogo - Biblioteca</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .search-section {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .search-controls {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .search-input-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        select {
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 5px;
+            font-size: 14px;
+            background: white;
+            cursor: pointer;
+            transition: border-color 0.3s;
+        }
+
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button.secondary {
+            background: #f0f0f0;
+            color: #333;
+            margin-left: 10px;
+        }
+
+        button.secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .search-tips {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #f0f0f0;
+        }
+
+        .tip {
+            padding: 10px;
+            background: #f9f9f9;
+            border-left: 4px solid #667eea;
+            border-radius: 4px;
+        }
+
+        .tip-title {
+            font-weight: 600;
+            color: #333;
+            font-size: 13px;
+            margin-bottom: 5px;
+        }
+
+        .tip-text {
+            color: #666;
+            font-size: 12px;
+        }
+
+        .results-section {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            display: none;
+        }
+
+        .results-section.active {
+            display: block;
+        }
+
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .results-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .result-count {
+            background: #667eea;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .results-list {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .result-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            background: #f9f9f9;
+            transition: all 0.3s;
+        }
+
+        .result-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+            background: white;
+        }
+
+        .result-card.book {
+            border-left: 4px solid #667eea;
+        }
+
+        .result-card.author {
+            border-left: 4px solid #764ba2;
+        }
+
+        .result-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .result-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+
+        .result-field {
+            padding: 10px;
+            background: white;
+            border-radius: 5px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .result-label {
+            font-weight: 600;
+            color: #667eea;
+            font-size: 12px;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+
+        .result-value {
+            color: #333;
+            font-size: 14px;
+            line-height: 1.5;
+            word-break: break-word;
+        }
+
+        .result-value.unavailable {
+            color: #999;
+            font-style: italic;
+        }
+
+        .error-message {
+            background: #fee;
+            color: #c33;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border-left: 4px solid #c33;
+        }
+
+        .success-message {
+            background: #efe;
+            color: #3c3;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border-left: 4px solid #3c3;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .table-results {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        .table-results thead {
+            background: #f0f0f0;
+        }
+
+        .table-results th {
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            color: #333;
+            border-bottom: 2px solid #ddd;
+        }
+
+        .table-results td {
+            padding: 12px;
+            border-bottom: 1px solid #e0e0e0;
+            color: #333;
+        }
+
+        .table-results tr:hover {
+            background: #f9f9f9;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .action-buttons button {
+            flex: 1;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .empty-icon {
+            font-size: 60px;
+            margin-bottom: 20px;
+        }
+
+        .empty-text {
+            font-size: 18px;
+            margin-bottom: 10px;
+            color: #666;
+        }
+
+        @media (max-width: 768px) {
+            .search-controls {
+                grid-template-columns: 1fr;
+            }
+
+            .search-input-group {
+                flex-direction: column;
+            }
+
+            .result-grid {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 22px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📚 Sistema de Consulta de Catálogo</h1>
+            <p class="subtitle">Busque informações de livros por ISBN, título ou autor</p>
+        </header>
+
+        <div class="search-section">
+            <div class="search-controls">
+                <div class="search-input-group">
+                    <input type="text" id="searchInput" placeholder="Digite ISBN, título ou nome do autor...">
+                    <select id="searchType">
+                        <option value="isbn">ISBN</option>
+                        <option value="title">Título</option>
+                        <option value="author">Autor</option>
+                    </select>
+                </div>
+                <div>
+                    <button onclick="performSearch()">🔍 Buscar</button>
+                    <button class="secondary" onclick="clearSearch()">Limpar</button>
+                </div>
+            </div>
+
+            <div class="search-tips">
+                <div class="tip">
+                    <div class="tip-title">📖 Buscar por ISBN</div>
+                    <div class="tip-text">Digite um ISBN válido (10 ou 13 dígitos) com ou sem hífens</div>
+                </div>
+                <div class="tip">
+                    <div class="tip-title">🔤 Buscar por Título</div>
+                    <div class="tip-text">Digite o título completo ou parcial do livro</div>
+                </div>
+                <div class="tip">
+                    <div class="tip-title">✍️ Buscar por Autor</div>
+                    <div class="tip-text">Digite o nome completo ou parcial do autor</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="resultsSection" class="results-section">
+            <div id="resultsContent"></div>
+        </div>
+    </div>
+
+    <script>
+        // Handle Enter key in search input
+        document.getElementById('searchInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                performSearch();
+            }
+        });
+
+        function performSearch() {
+            const query = document.getElementById('searchInput').value.trim();
+            const searchType = document.getElementById('searchType').value;
+
+            if (!query) {
+                alert('Por favor, digite algo para buscar');
+                return;
+            }
+
+            showLoading();
+            performSearchAPI(query, searchType);
+        }
+
+        function performSearchAPI(query, searchType) {
+            const url = `/api/search?q=${encodeURIComponent(query)}&type=${searchType}`;
+
+            fetch(url)
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(data => {
+                            throw new Error(data.error || `Erro ${response.status}`);
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    displayResults(data.results, searchType);
+                })
+                .catch(error => {
+                    showError(error.message || 'Erro ao buscar. Tente novamente.');
+                });
+        }
+
+        function showLoading() {
+            const resultsSection = document.getElementById('resultsSection');
+            resultsSection.classList.add('active');
+            resultsSection.innerHTML = `
+                <div class="loading">
+                    <div class="loading-spinner"></div>
+                    <p>Buscando...</p>
+                </div>
+            `;
+        }
+
+        function showError(message) {
+            const resultsSection = document.getElementById('resultsSection');
+            resultsSection.classList.add('active');
+            resultsSection.innerHTML = `
+                <div class="error-message">
+                    ❌ ${message}
+                </div>
+            `;
+        }
+
+        function displayResults(results, searchType) {
+            const resultsSection = document.getElementById('resultsSection');
+            const resultsContent = document.getElementById('resultsContent');
+
+            if (!results || results.length === 0) {
+                resultsContent.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">📭</div>
+                        <div class="empty-text">Nenhum resultado encontrado</div>
+                        <p>Tente refinar sua busca</p>
+                    </div>
+                `;
+                resultsSection.classList.add('active');
+                return;
+            }
+
+            let html = `
+                <div class="results-header">
+                    <h2 class="results-title">Resultados da Busca</h2>
+                    <div class="result-count">${results.length} resultado(s)</div>
+                </div>
+                <div class="results-list">
+            `;
+
+            results.forEach(result => {
+                if (searchType === 'author') {
+                    html += formatAuthorResult(result);
+                } else {
+                    html += formatBookResult(result);
+                }
+            });
+
+            html += '</div>';
+            resultsContent.innerHTML = html;
+            resultsSection.classList.add('active');
+        }
+
+        function formatBookResult(book) {
+            const type = book.type || 'book';
+            const fields = [
+                { label: 'ISBN', value: book.isbn },
+                { label: 'Título', value: book.title },
+                { label: 'Autor', value: book.author },
+                { label: 'Editora', value: book.publisher },
+                { label: 'Data Publicação', value: book.publish_date },
+                { label: 'Páginas', value: book.pages },
+                { label: 'Assunto', value: book.subject },
+                { label: 'Resumo', value: book.abstract }
+            ];
+
+            let html = `<div class="result-card ${type}"><div class="result-title">${book.title}</div><div class="result-grid">`;
+
+            fields.forEach(field => {
+                const isUnavailable = !field.value || field.value === 'Não disponível';
+                html += `
+                    <div class="result-field">
+                        <div class="result-label">${field.label}</div>
+                        <div class="result-value ${isUnavailable ? 'unavailable' : ''}">
+                            ${isUnavailable ? 'Não disponível' : escapeHtml(String(field.value))}
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += '</div></div>';
+            return html;
+        }
+
+        function formatAuthorResult(author) {
+            return `
+                <div class="result-card author">
+                    <div class="result-title">${author.name}</div>
+                    <div class="result-grid">
+                        <div class="result-field">
+                            <div class="result-label">Obras Catalogadas</div>
+                            <div class="result-value">${author.works_count}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function clearSearch() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('resultsSection').classList.remove('active');
+            document.getElementById('searchInput').focus();
+        }
+
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+
+        // Focus on search input when page loads
+        document.getElementById('searchInput').focus();
+    </script>
+</body>
+</html>
